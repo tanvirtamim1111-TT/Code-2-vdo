@@ -1,0 +1,9 @@
+{
+  "appId": "com.code2video.app",
+  "appName": "Code2Video",
+  "webDir": "dist",
+  "android": {
+    "allowMixedContent": false,
+    "backgroundColor": "#0b1020"
+  }
+}

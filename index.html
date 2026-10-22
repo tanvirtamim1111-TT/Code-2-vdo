@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="bn">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b1020">
+  <meta name="description" content="Claude AI-এর মোশন কোড পেস্ট করুন, প্রিভিউ দেখুন, Full HD MP4 ভিডিও ডাউনলোড করুন।">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>Code2Video</title>
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <img src="icons/icon.svg" alt="" width="34" height="34">
+      <div>
+        <h1>Code2Video</h1>
+        <p>কোড → প্রিভিউ → Full HD ভিডিও</p>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button id="installBtn" class="chip" hidden>⬇ ইনস্টল</button>
+      <a id="apkLink" class="chip" href="https://github.com/tanvirtamim1111-TT/Code-2-vdo/releases/latest" target="_blank" rel="noopener">APK</a>
+    </div>
+  </header>
+
+  <main>
+    <section class="card">
+      <div class="card-head">
+        <h2><span class="step">১</span> কোড পেস্ট করুন</h2>
+        <span id="modeBadge" class="badge">—</span>
+      </div>
+      <div class="toolbar">
+        <button id="pasteBtn" class="btn small">📋 পেস্ট</button>
+        <select id="exampleSelect" class="btn small">
+          <option value="">✨ উদাহরণ…</option>
+        </select>
+        <button id="clearBtn" class="btn small ghost">মুছুন</button>
+      </div>
+      <textarea id="code" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off"
+        placeholder="Claude-এর দেওয়া HTML / React / Remotion কোড এখানে পেস্ট করুন…"></textarea>
+      <button id="previewBtn" class="btn primary wide">▶ প্রিভিউ দেখুন</button>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2><span class="step">২</span> প্রিভিউ</h2>
+        <span id="previewStatus" class="muted"></span>
+      </div>
+      <div id="stageWrap" class="stage-wrap">
+        <div id="stage" class="stage"></div>
+        <div id="stageEmpty" class="stage-empty">কোড দিয়ে “প্রিভিউ দেখুন” চাপুন</div>
+      </div>
+      <div class="player">
+        <button id="playBtn" class="icon-btn" aria-label="Play/Pause">▶</button>
+        <button id="restartBtn" class="icon-btn" aria-label="Restart">⟲</button>
+        <input id="scrub" type="range" min="0" max="1000" value="0" step="1" aria-label="Seek">
+        <span id="timeText" class="time">0.0 / 0.0s</span>
+      </div>
+      <div id="logBox" class="log" hidden></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2><span class="step">৩</span> ভিডিও সেটিংস</h2></div>
+      <div class="grid">
+        <label>সাইজ
+          <select id="format">
+            <option value="1920x1080">16:9 — 1920×1080 (Full HD)</option>
+            <option value="1080x1920">9:16 — 1080×1920 (Reels/Shorts)</option>
+            <option value="1080x1080">1:1 — 1080×1080</option>
+            <option value="1080x1350">4:5 — 1080×1350</option>
+            <option value="1280x720">16:9 — 1280×720 (HD)</option>
+            <option value="3840x2160">16:9 — 3840×2160 (4K, ধীর)</option>
+          </select>
+        </label>
+        <label>FPS
+          <select id="fps">
+            <option value="24">24</option>
+            <option value="30" selected>30</option>
+            <option value="60">60</option>
+          </select>
+        </label>
+        <label>সময় (সেকেন্ড)
+          <div class="inline">
+            <input id="duration" type="number" min="0.5" max="300" step="0.5" value="10" inputmode="decimal">
+            <button id="autoDur" class="btn small ghost" title="অ্যানিমেশন থেকে সময় বের করুন">অটো</button>
+          </div>
+        </label>
+        <label>কোয়ালিটি
+          <select id="quality">
+            <option value="6">স্বাভাবিক (ছোট ফাইল)</option>
+            <option value="12" selected>হাই</option>
+            <option value="24">সর্বোচ্চ</option>
+          </select>
+        </label>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2><span class="step">৪</span> রেন্ডার ও ডাউনলোড</h2></div>
+      <button id="renderBtn" class="btn primary wide">🎬 ভিডিও রেন্ডার করুন</button>
+      <div id="progressBox" class="progress-box" hidden>
+        <div class="bar"><div id="bar"></div></div>
+        <div class="progress-row">
+          <span id="progressText">প্রস্তুত হচ্ছে…</span>
+          <button id="cancelBtn" class="btn small ghost">বাতিল</button>
+        </div>
+        <p class="muted small-note">রেন্ডারের সময় স্ক্রিন চালু রাখুন ও অ্যাপ থেকে বের হবেন না।</p>
+      </div>
+      <div id="result" class="result" hidden>
+        <video id="resultVideo" controls playsinline></video>
+        <p id="resultInfo" class="muted"></p>
+        <div class="row">
+          <button id="downloadBtn" class="btn primary">⬇ ডাউনলোড MP4</button>
+          <button id="shareBtn" class="btn" hidden>↗ শেয়ার / গ্যালারি</button>
+        </div>
+        <p id="saveInfo" class="muted"></p>
+      </div>
+      <p id="support" class="muted small-note"></p>
+    </section>
+
+    <footer class="foot muted">সব কাজ আপনার ফোনেই হয় — কোড বা ভিডিও কোথাও আপলোড হয় না।</footer>
+  </main>
+
+  <div id="renderStage" class="render-stage" aria-hidden="true"></div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

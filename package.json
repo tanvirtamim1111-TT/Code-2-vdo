@@ -1,0 +1,45 @@
+{
+  "name": "code2video",
+  "version": "1.0.0",
+  "description": "Paste Claude AI motion code, preview it, render a Full HD MP4 on your phone.",
+  "scripts": {
+    "vendor": "node scripts/build-vendor.mjs",
+    "dev": "npm run vendor && vite",
+    "build": "npm run vendor && vite build",
+    "preview": "vite preview",
+    "android:sync": "npm run build && npx cap sync android"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tanvirtamim1111-TT/Code-2-vdo.git"
+  },
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/tanvirtamim1111-TT/Code-2-vdo/issues"
+  },
+  "homepage": "https://github.com/tanvirtamim1111-TT/Code-2-vdo#readme",
+  "dependencies": {
+    "@capacitor/core": "^8.5.3",
+    "@capacitor/filesystem": "^8.1.5",
+    "@capacitor/share": "^8.0.3",
+    "mp4-muxer": "^5.2.2",
+    "sucrase": "^3.35.1"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/cli": "^8.5.3",
+    "@tailwindcss/browser": "^4.3.3",
+    "esbuild": "^0.28.2",
+    "framer-motion": "^14.5.0",
+    "gsap": "^3.15.0",
+    "html-to-image": "^1.11.13",
+    "lucide-react": "^1.61.0",
+    "motion": "^14.5.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "three": "^0.186.1",
+    "vite": "^8.3.5"
+  },
+  "private": true,
+  "type": "module"
+}
