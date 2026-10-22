@@ -21,33 +21,11 @@ const common = {
   target: ['es2020'],
 };
 
-// html-to-image tweaks: cloned nodes must not replay CSS animations/transitions
-// (their current values are already inlined), and image loads must not wait on rAF.
-const patchHtmlToImage = {
-  name: 'patch-html-to-image',
-  setup(b) {
-    b.onLoad({ filter: /html-to-image[\\/]es[\\/](clone-node|util)\.js$/ }, async (args) => {
-      const fs = await import('node:fs/promises');
-      let src = await fs.readFile(args.path, 'utf8');
-      if (args.path.endsWith('clone-node.js')) {
-        src = src.replace(
-          /(function cloneCSSStyle\(nativeNode, clonedNode, options\) \{[\s\S]*?\n)\}/,
-          (m, body) => `${body}    targetStyle.setProperty('animation', 'none', 'important');\n    targetStyle.setProperty('transition', 'none', 'important');\n}`,
-        );
-      } else {
-        src = src.replace('requestAnimationFrame(() => resolve(img));', 'resolve(img);');
-      }
-      return { contents: src, loader: 'js' };
-    });
-  },
-};
-
 await build({
   ...common,
   entryPoints: [path.join(root, 'src/iframe/runtime.js')],
   outfile: path.join(out, 'c2v-runtime.js'),
   format: 'iife',
-  plugins: [patchHtmlToImage],
 });
 
 // One bundle holds React + ReactDOM so every facade shares the same instance.

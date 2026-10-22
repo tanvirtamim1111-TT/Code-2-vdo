@@ -4,10 +4,11 @@ import { FrameHost, settle } from './frame-host.js';
 import { renderVideo, webCodecsSupported, pickEncoder } from './renderer.js';
 import { saveVideo, shareVideo, canShare, isNative, resetShare } from './save.js';
 import { EXAMPLES } from './examples.js';
+import { loadFiles, applyAssets } from './files.js';
 
 const $ = (id) => document.getElementById(id);
 const el = {
-  code: $('code'), modeBadge: $('modeBadge'), paste: $('pasteBtn'), examples: $('exampleSelect'), clear: $('clearBtn'),
+  code: $('code'), modeBadge: $('modeBadge'), paste: $('pasteBtn'), fileBtn: $('fileBtn'), fileInput: $('fileInput'), assetList: $('assetList'), examples: $('exampleSelect'), clear: $('clearBtn'),
   previewBtn: $('previewBtn'), stageWrap: $('stageWrap'), stage: $('stage'), stageEmpty: $('stageEmpty'),
   status: $('previewStatus'), play: $('playBtn'), restart: $('restartBtn'), scrub: $('scrub'), time: $('timeText'),
   log: $('logBox'), format: $('format'), fps: $('fps'), duration: $('duration'), autoDur: $('autoDur'),
@@ -16,6 +17,9 @@ const el = {
   resultInfo: $('resultInfo'), download: $('downloadBtn'), share: $('shareBtn'), saveInfo: $('saveInfo'),
   support: $('support'), renderStage: $('renderStage'), install: $('installBtn'), apk: $('apkLink'),
 };
+
+// Images/fonts/audio picked alongside the code; referenced by file name in the code.
+const assets = new Map();
 
 const STORE = 'c2v-state-v1';
 const store = {
@@ -153,7 +157,7 @@ async function buildPreview({ autoplay = true, detect = true } = {}) {
 
   let doc;
   try {
-    doc = buildDocument(raw, { width: cfg.width, height: cfg.height, fps: cfg.fps, durationInFrames: Math.round(cfg.duration * cfg.fps) });
+    doc = buildDocument(applyAssets(raw, assets), { width: cfg.width, height: cfg.height, fps: cfg.fps, durationInFrames: Math.round(cfg.duration * cfg.fps) });
   } catch (e) {
     preview.loading = false;
     el.status.textContent = 'কোডে ভুল আছে';
@@ -264,7 +268,7 @@ async function startRender() {
   const cfg = settings();
   let doc;
   try {
-    doc = buildDocument(raw, { width: cfg.width, height: cfg.height, fps: cfg.fps, durationInFrames: Math.round(cfg.duration * cfg.fps) });
+    doc = buildDocument(applyAssets(raw, assets), { width: cfg.width, height: cfg.height, fps: cfg.fps, durationInFrames: Math.round(cfg.duration * cfg.fps) });
   } catch (e) {
     log(e.message || e); return;
   }
@@ -343,8 +347,59 @@ el.paste.addEventListener('click', async () => {
     alert('বক্সে লং-প্রেস করে “Paste” চাপুন');
   }
 });
+// ---- files ------------------------------------------------------------------------
+function renderAssets() {
+  el.assetList.replaceChildren();
+  el.assetList.hidden = !assets.size;
+  for (const name of assets.keys()) {
+    const chip = document.createElement('span');
+    chip.className = 'asset';
+    const label = document.createElement('span');
+    label.textContent = `📎 ${name}`;
+    const rm = document.createElement('button');
+    rm.textContent = '×';
+    rm.setAttribute('aria-label', `${name} সরান`);
+    rm.addEventListener('click', () => { assets.delete(name); renderAssets(); schedulePreviewRebuild(); });
+    chip.append(label, rm);
+    el.assetList.appendChild(chip);
+  }
+}
+
+async function openFiles(fileList) {
+  if (!fileList || !fileList.length) return;
+  try {
+    const res = await loadFiles(fileList);
+    for (const [k, v] of res.assets) assets.set(k, v);
+    renderAssets();
+    if (res.code != null) {
+      el.code.value = res.code;
+      updateMode(); persist();
+      await buildPreview();
+      res.notes.forEach((n) => log(n));
+    } else if (res.assets.size) {
+      schedulePreviewRebuild();
+    }
+  } catch (e) {
+    alert(`ফাইল পড়া যায়নি: ${e.message || e}`);
+  }
+}
+
+el.fileBtn.addEventListener('click', () => el.fileInput.click());
+el.fileInput.addEventListener('change', () => {
+  const files = el.fileInput.files;
+  openFiles(files).finally(() => { el.fileInput.value = ''; });
+});
+const codeCard = el.code.closest('.card');
+codeCard.addEventListener('dragover', (e) => { e.preventDefault(); codeCard.classList.add('dropping'); });
+codeCard.addEventListener('dragleave', () => codeCard.classList.remove('dropping'));
+codeCard.addEventListener('drop', (e) => {
+  codeCard.classList.remove('dropping');
+  if (e.dataTransfer && e.dataTransfer.files.length) { e.preventDefault(); openFiles(e.dataTransfer.files); }
+});
+
 el.clear.addEventListener('click', () => {
   el.code.value = ''; updateMode(); persist();
+  assets.clear(); renderAssets();
   if (preview.host) { preview.host.destroy(); preview.host = null; }
   el.stageEmpty.hidden = false; el.status.textContent = ''; clearLog(); updateTime();
 });

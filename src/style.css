@@ -74,6 +74,17 @@ main { max-width: 860px; margin: 0 auto; padding: 14px 16px 30px; display: grid;
 .btn.wide { width: 100%; padding: 14px; font-size: 17px; }
 select.btn { appearance: auto; }
 
+.assets { display: flex; flex-wrap: wrap; gap: 6px; }
+.asset {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 100%;
+  background: var(--card-2); border: 1px solid var(--line); border-radius: 999px; padding: 4px 6px 4px 10px; font-size: 12px;
+}
+.asset span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asset button {
+  border: 0; background: transparent; color: var(--muted); font-size: 15px; line-height: 1; padding: 2px 4px; cursor: pointer;
+}
+.dropping textarea { outline: 2px dashed var(--accent-2); outline-offset: 2px; }
+
 textarea {
   width: 100%; min-height: 220px; resize: vertical;
   background: #0a0f1e; color: #d6e2ff; border: 1px solid var(--line); border-radius: 12px; padding: 12px;

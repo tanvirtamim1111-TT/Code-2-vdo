@@ -29,18 +29,22 @@
   <main>
     <section class="card">
       <div class="card-head">
-        <h2><span class="step">১</span> কোড পেস্ট করুন</h2>
+        <h2><span class="step">১</span> কোড দিন</h2>
         <span id="modeBadge" class="badge">—</span>
       </div>
       <div class="toolbar">
         <button id="pasteBtn" class="btn small">📋 পেস্ট</button>
+        <button id="fileBtn" class="btn small">📁 ফাইল</button>
+        <input id="fileInput" type="file" multiple hidden
+          accept=".html,.htm,.css,.js,.mjs,.jsx,.ts,.tsx,.md,.txt,.json,.svg,image/*,font/*,.ttf,.otf,.woff,.woff2,audio/*,video/*,text/*">
         <select id="exampleSelect" class="btn small">
           <option value="">✨ উদাহরণ…</option>
         </select>
         <button id="clearBtn" class="btn small ghost">মুছুন</button>
       </div>
+      <div id="assetList" class="assets" hidden></div>
       <textarea id="code" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off"
-        placeholder="Claude-এর দেওয়া HTML / React / Remotion কোড এখানে পেস্ট করুন…"></textarea>
+        placeholder="Claude-এর দেওয়া HTML / React / Remotion কোড এখানে পেস্ট করুন, অথবা 📁 ফাইল থেকে আপলোড করুন…"></textarea>
       <button id="previewBtn" class="btn primary wide">▶ প্রিভিউ দেখুন</button>
     </section>
 

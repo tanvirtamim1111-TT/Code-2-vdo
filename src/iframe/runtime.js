@@ -3,7 +3,7 @@
 // page's clock (performance.now, Date, requestAnimationFrame, timers, CSS/WAAPI/SMIL
 // animations) with a virtual clock that the parent app advances frame by frame, and
 // exposes a capture() that rasterises the current DOM into a canvas.
-import { toCanvas, getFontEmbedCSS } from 'html-to-image';
+import { Snapshotter } from './snapshot.js';
 
 (function () {
   const W = window;
@@ -175,7 +175,8 @@ import { toCanvas, getFontEmbedCSS } from 'html-to-image';
   }
 
   // ---- capture --------------------------------------------------------------
-  let fontCSS = null;
+  let snapshotter = null;
+  let outCanvas = null;
   function bgColor() {
     const isClear = (c) => !c || c === 'transparent' || /rgba\(.*,\s*0\)$/.test(c);
     const h = getComputedStyle(document.documentElement).backgroundColor;
@@ -208,8 +209,12 @@ import { toCanvas, getFontEmbedCSS } from 'html-to-image';
   async function capture(width, height) {
     passthrough = true;
     try {
-      const out = document.createElement('canvas');
-      out.width = width; out.height = height;
+      // One output canvas is reused; the encoder copies each frame out of it.
+      if (!outCanvas || outCanvas.width !== width || outCanvas.height !== height) {
+        outCanvas = document.createElement('canvas');
+        outCanvas.width = width; outCanvas.height = height;
+      }
+      const out = outCanvas;
       const ctx = out.getContext('2d');
       const canvases = canvasOnly();
       if (canvases) {
@@ -225,18 +230,8 @@ import { toCanvas, getFontEmbedCSS } from 'html-to-image';
         ctx.globalAlpha = 1;
         return out;
       }
-      const root = document.documentElement;
-      if (fontCSS === null) {
-        try { fontCSS = await getFontEmbedCSS(root); } catch (e) { fontCSS = ''; }
-      }
-      const c = await toCanvas(root, {
-        width, height, canvasWidth: width, canvasHeight: height,
-        pixelRatio: 1, skipAutoScale: true, cacheBust: false,
-        backgroundColor: bgColor(), fontEmbedCSS: fontCSS,
-        imagePlaceholder: 'data:image/gif;base64,R0lGODlhAQABAAAAACw=',
-        filter: (node) => !(node.tagName === 'SCRIPT' || node.tagName === 'NOSCRIPT'),
-      });
-      ctx.drawImage(c, 0, 0, width, height);
+      if (!snapshotter) snapshotter = new Snapshotter(W);
+      await snapshotter.draw(ctx, width, height);
       return out;
     } finally {
       passthrough = false;
