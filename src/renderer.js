@@ -37,6 +37,14 @@ export async function pickEncoder(width, height, fps, bitrate) {
   return null;
 }
 
+// Resolves when the encoder takes a frame off its queue (with a fallback so an encoder
+// error, which fires no dequeue event, cannot hang the loop).
+function waitDequeue(encoder) {
+  const fallback = settle(20);
+  if (!('ondequeue' in encoder)) return fallback;
+  return Promise.race([new Promise((r) => encoder.addEventListener('dequeue', r, { once: true })), fallback]);
+}
+
 export function webCodecsSupported() {
   return typeof VideoEncoder !== 'undefined' && typeof VideoFrame !== 'undefined';
 }
@@ -76,7 +84,7 @@ export async function renderVideo({ doc, stage, width, height, fps, duration, bi
       if (signal.aborted) throw new Error('বাতিল করা হয়েছে');
       if (encodeError) throw encodeError;
       if (i > 0) host.tick(frameMs);
-      await settle(2);
+      await host.settle();
       const canvas = await host.capture();
       const frame = new VideoFrame(canvas, {
         timestamp: Math.round(i * 1e6 / fps),
@@ -84,7 +92,8 @@ export async function renderVideo({ doc, stage, width, height, fps, duration, bi
       });
       encoder.encode(frame, { keyFrame: i % (fps * 2) === 0 });
       frame.close();
-      while (encoder.encodeQueueSize > 4) await new Promise((r) => setTimeout(r, 5));
+      // Wait on the encoder itself rather than timers, which are throttled in the background.
+      while (encoder.encodeQueueSize > 4) await waitDequeue(encoder);
       onProgress({ frame: i + 1, total, elapsed: performance.now() - started });
     }
     await encoder.flush();

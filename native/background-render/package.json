@@ -1,0 +1,13 @@
+{
+  "name": "code2video-background-render",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Keeps Code2Video rendering while the app is in the background (Android foreground service).",
+  "main": "index.js",
+  "license": "MIT",
+  "capacitor": {
+    "android": {
+      "src": "android"
+    }
+  }
+}

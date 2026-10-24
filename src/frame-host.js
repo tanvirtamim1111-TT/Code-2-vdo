@@ -47,37 +47,24 @@ export class FrameHost {
     // A few zero-length ticks let start-up timers, rAF and React effects run.
     for (let i = 0; i < 4; i++) {
       this.api.tick(0);
-      await settle(3);
+      await this.settle();
     }
     await this.api.ready(3000);
   }
 
   tick(ms) { this.api.tick(ms); }
-  time() { return this.api ? this.api.time() : 0; }
-  capture() { return this.api.capture(this.width, this.height); }
 
-  // Reports what the document's own animations suggest the video length is (seconds).
-  detectDuration() {
-    try {
-      const w = this.win;
-      let end = 0;
-      let loopLen = 0;
-      for (const a of w.document.getAnimations()) {
-        const t = a.effect && a.effect.getComputedTiming ? a.effect.getComputedTiming() : null;
-        if (!t) continue;
-        if (Number.isFinite(t.endTime)) end = Math.max(end, t.endTime);
-        else if (Number.isFinite(t.duration)) loopLen = Math.max(loopLen, (t.delay || 0) + t.duration);
-      }
-      if (w.gsap && w.gsap.globalTimeline) {
-        const g = w.gsap.globalTimeline.totalDuration() * 1000;
-        if (Number.isFinite(g) && g < 600000) end = Math.max(end, g);
-      }
-      const ms = end || loopLen;
-      return ms > 300 ? Math.min(120, Math.ceil(ms / 100) / 10) : null;
-    } catch (e) {
-      return null;
+  // After a tick: give the page's own async work (React commits, effects, promise
+  // chains) time to finish, until a turn of the event loop passes with no DOM change.
+  async settle(max = 12) {
+    await settle(2);
+    for (let i = 0; i < max; i++) {
+      if (!this.api.takeMutated()) return;
+      await settle(1);
     }
   }
+  time() { return this.api ? this.api.time() : 0; }
+  capture() { return this.api.capture(this.width, this.height); }
 
   destroy() {
     window.removeEventListener('message', this._listener);

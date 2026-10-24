@@ -101,6 +101,105 @@ import { Snapshotter } from './snapshot.js';
     } catch (e) { report(e); }
   }
 
+  // ---- finish events -------------------------------------------------------------
+  // Browsers deliver an animation's `finish` event (and CSS animationend/transitionend)
+  // only at the next real repaint, which on the virtual clock can be many frames late.
+  // When the runtime finishes an animation it delivers these events right away and
+  // drops the browser's late duplicate.
+  const delivered = new WeakSet(); // animations whose finish event was already sent
+  const MARK = Symbol('c2v-event');
+  const AP = W.Animation && W.Animation.prototype;
+  if (AP) {
+    const origAdd = AP.addEventListener;
+    const origRemove = AP.removeEventListener;
+    const wrappers = new WeakMap();
+    const guard = (fn) => {
+      if (!wrappers.has(fn)) {
+        wrappers.set(fn, function (e) {
+          if (e && e.type === 'finish' && !e[MARK] && delivered.has(this)) return undefined;
+          return typeof fn === 'function' ? fn.call(this, e) : fn.handleEvent(e);
+        });
+      }
+      return wrappers.get(fn);
+    };
+    AP.addEventListener = function (type, fn, opts) {
+      if (type === 'finish' && fn) return origAdd.call(this, type, guard(fn), opts);
+      return origAdd.call(this, type, fn, opts);
+    };
+    AP.removeEventListener = function (type, fn, opts) {
+      if (type === 'finish' && fn && wrappers.has(fn)) return origRemove.call(this, type, wrappers.get(fn), opts);
+      return origRemove.call(this, type, fn, opts);
+    };
+    const desc = Object.getOwnPropertyDescriptor(AP, 'onfinish');
+    if (desc && desc.set) {
+      const own = new WeakMap();
+      Object.defineProperty(AP, 'onfinish', {
+        configurable: true,
+        enumerable: desc.enumerable,
+        get() { return own.has(this) ? own.get(this) : null; },
+        set(fn) {
+          own.set(this, fn);
+          desc.set.call(this, typeof fn === 'function' ? guard(fn) : fn);
+        },
+      });
+    }
+  }
+  // Late native animationend/transitionend for animations already reported are dropped.
+  const sentCss = new Map(); // "kind|name" per element -> count still to swallow
+  const cssKey = (el, kind, name) => {
+    if (!el.__c2vId) el.__c2vId = Math.random().toString(36).slice(2);
+    return `${el.__c2vId}|${kind}|${name}`;
+  };
+  for (const type of ['animationend', 'transitionend']) {
+    W.addEventListener(type, (e) => {
+      if (e[MARK]) return;
+      const name = type === 'animationend' ? e.animationName : e.propertyName;
+      const k = cssKey(e.target, type, name);
+      const n = sentCss.get(k);
+      if (n) {
+        if (n > 1) sentCss.set(k, n - 1); else sentCss.delete(k);
+        e.stopImmediatePropagation();
+      }
+    }, true);
+  }
+
+  function finishNow(a) {
+    a.finish();
+    if (delivered.has(a)) return;
+    delivered.add(a);
+    try {
+      const ev = new AnimationPlaybackEvent('finish', { currentTime: a.currentTime, timelineTime: null });
+      ev[MARK] = true;
+      a.dispatchEvent(ev);
+    } catch (e) { report(e); }
+    const target = a.effect && a.effect.target;
+    if (!target) return;
+    let ev = null;
+    let k = null;
+    try {
+      if (typeof CSSAnimation !== 'undefined' && a instanceof CSSAnimation) {
+        const timing = a.effect.getComputedTiming();
+        ev = new AnimationEvent('animationend', {
+          bubbles: true, animationName: a.animationName,
+          elapsedTime: (timing.activeDuration || 0) / 1000, pseudoElement: a.effect.pseudoElement || '',
+        });
+        k = cssKey(target, 'animationend', a.animationName);
+      } else if (typeof CSSTransition !== 'undefined' && a instanceof CSSTransition) {
+        const timing = a.effect.getComputedTiming();
+        ev = new TransitionEvent('transitionend', {
+          bubbles: true, propertyName: a.transitionProperty,
+          elapsedTime: (timing.activeDuration || 0) / 1000, pseudoElement: a.effect.pseudoElement || '',
+        });
+        k = cssKey(target, 'transitionend', a.transitionProperty);
+      }
+    } catch (e) { ev = null; }
+    if (ev) {
+      ev[MARK] = true;
+      sentCss.set(k, (sentCss.get(k) || 0) + 1);
+      safe(() => target.dispatchEvent(ev));
+    }
+  }
+
   // ---- animations (CSS animations/transitions, WAAPI, SMIL) ----------------
   const animStart = new WeakMap();
   const animDone = new WeakSet();
@@ -112,10 +211,13 @@ import { Snapshotter } from './snapshot.js';
         if (a.playState !== 'running') continue;
         // Restarted by the page (e.g. a.play()) — track it again from now.
         animDone.delete(a);
+        delivered.delete(a);
         animStart.delete(a);
       }
       if (!animStart.has(a)) {
-        animStart.set(a, vt - (a.currentTime > 0 ? a.currentTime : 0));
+        // The clock is frozen between ticks, so anything new started at the current
+        // virtual time; its own currentTime only reflects real milliseconds elapsed.
+        animStart.set(a, vt);
         try { a.pause(); } catch (e) { /* ignore */ }
       }
       try {
@@ -127,7 +229,7 @@ import { Snapshotter } from './snapshot.js';
           // finish() fires the finished promise/event that libraries such as
           // framer-motion wait on; a paused animation would never fire it.
           animDone.add(a);
-          a.finish();
+          finishNow(a);
         } else {
           a.currentTime = t;
         }
@@ -253,6 +355,65 @@ import { Snapshotter } from './snapshot.js';
     }
   }
 
+  // ---- change detection ------------------------------------------------------
+  // A compact per-element description of what is on screen, used to work out how
+  // long the animation runs. Numbers are rounded so easing tails count as settled.
+  const FP_PROPS = ['transform', 'translate', 'rotate', 'scale', 'opacity', 'visibility', 'left', 'top', 'right', 'bottom',
+    'width', 'height', 'color', 'background-color', 'background-image', 'background-position', 'filter', 'clip-path',
+    'font-size', 'letter-spacing', 'border-radius', 'box-shadow', 'fill', 'stroke', 'stroke-dashoffset', 'offset-distance'];
+  const roundNums = (str) => str
+    .replace(/-?\d+\.\d+/g, (m) => (+m).toFixed(2).replace(/^-(0\.00)$/, '$1'))
+    // An identity transform looks the same as none (framer-motion swaps them after a while).
+    .replace(/matrix\(1(\.00)?, 0(\.00)?, 0(\.00)?, 1(\.00)?, 0(\.00)?, 0(\.00)?\)/g, 'none');
+  const hashStr = (str) => {
+    let h = 2166136261;
+    for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+    return h >>> 0;
+  };
+  let fpCanvas = null;
+  function canvasSig(c) {
+    if (!c.width || !c.height) return '';
+    try {
+      if (!fpCanvas) { fpCanvas = document.createElement('canvas'); fpCanvas.width = 16; fpCanvas.height = 9; }
+      const x = fpCanvas.getContext('2d', { willReadFrequently: true });
+      x.clearRect(0, 0, 16, 9);
+      x.drawImage(c, 0, 0, 16, 9);
+      const d = x.getImageData(0, 0, 16, 9).data;
+      let sig = '';
+      for (let i = 0; i < d.length; i++) sig += (d[i] >> 4).toString(16);
+      return sig;
+    } catch (e) { return ''; }
+  }
+  function fingerprint(limit = 3000, raw = false) {
+    const out = [];
+    const walk = (el, path) => {
+      if (out.length >= limit) return;
+      if (/^(SCRIPT|STYLE|LINK|META|TEMPLATE|NOSCRIPT)$/.test(el.tagName)) return;
+      const cs = getComputedStyle(el);
+      if (cs.display === 'none') { out.push([path, 0]); return; }
+      let sig = el.tagName;
+      for (const p of FP_PROPS) sig += '|' + cs.getPropertyValue(p);
+      for (let c = el.firstChild; c; c = c.nextSibling) if (c.nodeType === 3) sig += c.nodeValue;
+      if (el.namespaceURI === 'http://www.w3.org/2000/svg') for (const a of el.attributes) sig += `|${a.name}=${a.value}`;
+      if (el.tagName === 'CANVAS') sig += canvasSig(el);
+      if (el.tagName === 'VIDEO') sig += `|v${Math.min(el.currentTime, el.duration || Infinity).toFixed(1)}`;
+      out.push([path, raw ? roundNums(sig) : hashStr(roundNums(sig))]);
+      let i = 0;
+      for (let c = el.firstElementChild; c; c = c.nextElementSibling) walk(c, `${path}/${i++}`);
+    };
+    if (document.body) walk(document.body, 'b');
+    return out;
+  }
+
+  // Lets the host wait until React/Vue renders and other async work have settled.
+  let mutated = false;
+  const observe = () => {
+    new MutationObserver(() => { mutated = true; })
+      .observe(document.documentElement, { subtree: true, childList: true, attributes: true, characterData: true });
+  };
+  if (document.documentElement) observe();
+  else document.addEventListener('readystatechange', observe, { once: true });
+
   W.addEventListener('error', (e) => report(e.error || e.message));
   W.addEventListener('unhandledrejection', (e) => report(e.reason));
   const origErr = console.error.bind(console);
@@ -267,5 +428,7 @@ import { Snapshotter } from './snapshot.js';
     config: W.__C2V_CONFIG || {},
     send,
     realSetTimeout: real.setTimeout,
+    fingerprint,
+    takeMutated: () => { const m = mutated; mutated = false; return m; },
   };
 })();

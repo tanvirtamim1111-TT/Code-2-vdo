@@ -1,10 +1,12 @@
 import './style.css';
 import { buildDocument, cleanCode, detectMode, detectDeclaredConfig, MODE_LABEL } from './build-doc.js';
-import { FrameHost, settle } from './frame-host.js';
+import { FrameHost } from './frame-host.js';
+import { measureDuration } from './duration.js';
 import { renderVideo, webCodecsSupported, pickEncoder } from './renderer.js';
 import { saveVideo, shareVideo, canShare, isNative, resetShare } from './save.js';
 import { EXAMPLES } from './examples.js';
 import { loadFiles, applyAssets } from './files.js';
+import { startBackground, updateBackground, stopBackground, backgroundSupported } from './background.js';
 
 const $ = (id) => document.getElementById(id);
 const el = {
@@ -12,8 +14,8 @@ const el = {
   previewBtn: $('previewBtn'), stageWrap: $('stageWrap'), stage: $('stage'), stageEmpty: $('stageEmpty'),
   status: $('previewStatus'), play: $('playBtn'), restart: $('restartBtn'), scrub: $('scrub'), time: $('timeText'),
   log: $('logBox'), format: $('format'), fps: $('fps'), duration: $('duration'), autoDur: $('autoDur'),
-  quality: $('quality'), renderBtn: $('renderBtn'), progressBox: $('progressBox'), bar: $('bar'),
-  progressText: $('progressText'), cancel: $('cancelBtn'), result: $('result'), video: $('resultVideo'),
+  quality: $('quality'), durHint: $('durHint'), renderBtn: $('renderBtn'), progressBox: $('progressBox'), bar: $('bar'),
+  progressText: $('progressText'), renderNote: $('renderNote'), cancel: $('cancelBtn'), result: $('result'), video: $('resultVideo'),
   resultInfo: $('resultInfo'), download: $('downloadBtn'), share: $('shareBtn'), saveInfo: $('saveInfo'),
   support: $('support'), renderStage: $('renderStage'), install: $('installBtn'), apk: $('apkLink'),
 };
@@ -31,7 +33,7 @@ const store = {
 function settings() {
   const [width, height] = el.format.value.split('x').map(Number);
   const fps = Number(el.fps.value);
-  const duration = Math.max(0.5, Math.min(300, Number(el.duration.value) || 10));
+  const duration = Math.max(0.5, Math.min(600, Number(el.duration.value) || 10));
   return { width, height, fps, duration, bitrate: Number(el.quality.value) * 1e6 * (width * height) / (1920 * 1080) };
 }
 
@@ -141,11 +143,10 @@ async function buildPreview({ autoplay = true, detect = true } = {}) {
   const code = cleanCode(raw);
   const mode = detectMode(code);
   if (detect && (mode === 'react' || mode === 'remotion')) {
-    // Size/fps/length a Remotion composition declares in code.
+    // Size/fps a Remotion composition declares in code (its length is handled by detectDuration).
     const declared = detectDeclaredConfig(code);
     if (declared.width && declared.height) ensureFormat(declared.width, declared.height);
     if (declared.fps && [...el.fps.options].some((o) => Number(o.value) === declared.fps)) el.fps.value = String(declared.fps);
-    if (declared.duration) el.duration.value = Math.round(declared.duration * 100) / 100;
   }
   const cfg = settings();
   preview.cfg = cfg;
@@ -175,14 +176,93 @@ async function buildPreview({ autoplay = true, detect = true } = {}) {
   if (token !== preview.token) return false;
   preview.loading = false;
   el.status.textContent = MODE_LABEL[doc.mode];
-  if (detect && (doc.mode === 'html' || doc.mode === 'js')) {
-    const d = host.detectDuration();
-    if (d) el.duration.value = d;
+  if (detect) {
+    durationState.touched = false;
+    detectDuration({ apply: true });
   }
   persist();
   updateTime();
   if (autoplay) setPlaying(true);
   return true;
+}
+
+// ---- automatic video length ------------------------------------------------------
+// The animation is played fast in a hidden frame to find where it ends (or one loop).
+// The result fills the duration box unless the user has typed their own value.
+const durationState = { job: null, touched: false, suggestion: null };
+
+function fmtDur(sec) {
+  if (sec >= 60) {
+    const m = Math.floor(sec / 60);
+    return `${m} মি ${(sec - m * 60).toFixed(1).replace(/\.0$/, '')} সে`;
+  }
+  return `${sec.toFixed(1).replace(/\.0$/, '')} সে`;
+}
+
+function setDurHint(text, apply) {
+  el.durHint.hidden = !text;
+  el.durHint.textContent = text || '';
+  el.durHint.classList.toggle('clickable', !!apply);
+  el.durHint.onclick = apply || null;
+}
+
+function applyDuration(sec) {
+  el.duration.value = String(sec);
+  persist();
+  updateTime();
+}
+
+function cancelDurationDetect() {
+  if (durationState.job) durationState.job.aborted = true;
+  durationState.job = null;
+}
+
+async function detectDuration({ apply }) {
+  cancelDurationDetect();
+  const raw = el.code.value;
+  if (!raw.trim()) return;
+  const code = cleanCode(raw);
+  const mode = detectMode(code);
+  const declared = detectDeclaredConfig(code);
+  const show = (sec, label) => {
+    durationState.suggestion = sec;
+    if (apply && !durationState.touched) {
+      applyDuration(sec);
+      setDurHint(`${label}: ${fmtDur(sec)} — চাইলে বদলাতে পারেন`);
+    } else {
+      setDurHint(`${label}: ${fmtDur(sec)} — বসাতে চাপুন`, () => {
+        durationState.touched = false; applyDuration(sec); setDurHint(`${label}: ${fmtDur(sec)}`);
+      });
+    }
+  };
+  if ((mode === 'react' || mode === 'remotion') && declared.duration) {
+    show(Math.round(declared.duration * 100) / 100, '✓ কোডে দেওয়া সময়');
+    return;
+  }
+  const cfg = settings();
+  let doc;
+  try {
+    doc = buildDocument(applyAssets(raw, assets), { width: cfg.width, height: cfg.height, fps: cfg.fps, durationInFrames: Math.round(cfg.duration * cfg.fps) });
+  } catch (e) { return; }
+  const signal = { aborted: false };
+  durationState.job = signal;
+  setDurHint('⏱ ভিডিওর দৈর্ঘ্য মাপা হচ্ছে…');
+  let res = null;
+  try {
+    res = await measureDuration({ doc, stage: el.renderStage, width: cfg.width, height: cfg.height, signal });
+  } catch (e) {
+    res = { seconds: null, kind: 'error' };
+  }
+  if (signal.aborted) return;
+  durationState.job = null;
+  if (!res || res.seconds == null) {
+    setDurHint(res && res.kind === 'endless'
+      ? '∞ এটা থামে না — ভিডিওর সময় নিজে দিন'
+      : 'নির্দিষ্ট দৈর্ঘ্য পাওয়া যায়নি — সময় নিজে দিন');
+    return;
+  }
+  const sec = Math.min(600, Math.max(0.5, Math.round(res.seconds * 10) / 10));
+  show(sec, res.kind === 'loop' ? '🔁 এক লুপ' : '✓ অটো');
 }
 
 let rebuildTimer = null;
@@ -207,14 +287,13 @@ async function seekTo(seconds) {
     if (token !== preview.token) { preview.seeking = false; return; }
   }
   const step = 1000 / cfg.fps;
-  let n = 0;
   while (preview.host.time() + step <= target + 0.01) {
     preview.host.tick(step);
-    if (++n % 3 === 0) await settle(1);
+    await preview.host.settle();
   }
   const rest = target - preview.host.time();
   if (rest > 0) preview.host.tick(rest);
-  await settle(2);
+  await preview.host.settle();
   preview.seeking = false;
   updateTime();
   if (wasPlaying) setPlaying(true);
@@ -281,7 +360,10 @@ async function startRender() {
   el.result.hidden = true;
   el.bar.style.width = '0%';
   el.progressText.textContent = 'প্রস্তুত হচ্ছে…';
+  cancelDurationDetect();
   await keepAwake(true);
+  await startBackground('প্রস্তুত হচ্ছে…');
+  let doneNote = null;
   try {
     const out = await renderVideo({
       doc, stage: el.renderStage, ...cfg, signal, onMessage: onFrameMessage,
@@ -290,6 +372,7 @@ async function startRender() {
         el.bar.style.width = `${pct.toFixed(1)}%`;
         const eta = (elapsed / frame) * (total - frame) / 1000;
         el.progressText.textContent = `ফ্রেম ${frame}/${total} · ${pct.toFixed(0)}% · বাকি ~${fmtTime(eta)}`;
+        updateBackground(pct, `${pct.toFixed(0)}% · বাকি ~${fmtTime(eta)}`);
       },
     });
     resultBlob = out.blob;
@@ -304,10 +387,15 @@ async function startRender() {
     el.result.hidden = false;
     el.progressText.textContent = '✅ সম্পন্ন!';
     el.result.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    doneNote = { title: 'ভিডিও তৈরি হয়েছে ✅', text: 'অ্যাপ খুলে ডাউনলোড করুন' };
   } catch (e) {
     el.progressText.textContent = `❌ ${e.message || e}`;
-    if (!signal.aborted) log(e.message || e);
+    if (!signal.aborted) {
+      log(e.message || e);
+      doneNote = { title: 'রেন্ডার হয়নি ❌', text: String(e.message || e).slice(0, 120) };
+    }
   } finally {
+    await stopBackground(doneNote);
     renderJob = null;
     el.renderBtn.disabled = false;
     el.previewBtn.disabled = false;
@@ -400,6 +488,7 @@ codeCard.addEventListener('drop', (e) => {
 el.clear.addEventListener('click', () => {
   el.code.value = ''; updateMode(); persist();
   assets.clear(); renderAssets();
+  cancelDurationDetect(); setDurHint('');
   if (preview.host) { preview.host.destroy(); preview.host = null; }
   el.stageEmpty.hidden = false; el.status.textContent = ''; clearLog(); updateTime();
 });
@@ -417,13 +506,12 @@ el.examples.addEventListener('change', () => {
 });
 
 for (const s of [el.format, el.fps]) s.addEventListener('change', () => { persist(); fitStage(); schedulePreviewRebuild(); });
+el.duration.addEventListener('input', () => { durationState.touched = true; });
 el.duration.addEventListener('change', () => { persist(); updateTime(); });
 el.quality.addEventListener('change', persist);
 el.autoDur.addEventListener('click', () => {
-  const declared = detectDeclaredConfig(cleanCode(el.code.value));
-  const d = (preview.host && preview.host.detectDuration()) || declared.duration;
-  if (d) { el.duration.value = Math.round(d * 100) / 100; persist(); updateTime(); }
-  else alert('অ্যানিমেশনের নির্দিষ্ট শেষ সময় পাওয়া যায়নি — নিজে সময় লিখে দিন।');
+  durationState.touched = false;
+  detectDuration({ apply: true });
 });
 
 el.renderBtn.addEventListener('click', startRender);
@@ -470,6 +558,10 @@ if ('serviceWorker' in navigator && !isNative() && location.protocol === 'https:
     ? `✓ ভিডিও এনকোডার প্রস্তুত (${enc.config.codec.startsWith('avc') ? 'H.264' : enc.mux.toUpperCase()} MP4)`
     : '⚠ এই ডিভাইসে 1080p এনকোডার পাওয়া যায়নি — ছোট সাইজ চেষ্টা করুন।';
 })();
+
+if (backgroundSupported()) {
+  el.renderNote.textContent = 'অ্যাপ থেকে বের হলেও রেন্ডার চলবে — নোটিফিকেশনে অগ্রগতি দেখাবে।';
+}
 
 restore();
 updateMode();

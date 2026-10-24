@@ -1,5 +1,5 @@
 // Offline support: the app shell and bundled libraries are cached on first visit.
-const CACHE = 'c2v-v2';
+const CACHE = 'c2v-v3';
 const PRECACHE = [
   './', 'index.html', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
   'vendor/c2v-runtime.js', 'vendor/react-all.mjs', 'vendor/react.mjs', 'vendor/react-dom.mjs',

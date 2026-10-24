@@ -88,9 +88,10 @@
         </label>
         <label>সময় (সেকেন্ড)
           <div class="inline">
-            <input id="duration" type="number" min="0.5" max="300" step="0.5" value="10" inputmode="decimal">
+            <input id="duration" type="number" min="0.5" max="600" step="0.1" value="10" inputmode="decimal">
             <button id="autoDur" class="btn small ghost" title="অ্যানিমেশন থেকে সময় বের করুন">অটো</button>
           </div>
+          <button id="durHint" class="dur-hint" type="button" hidden></button>
         </label>
         <label>কোয়ালিটি
           <select id="quality">
@@ -111,7 +112,7 @@
           <span id="progressText">প্রস্তুত হচ্ছে…</span>
           <button id="cancelBtn" class="btn small ghost">বাতিল</button>
         </div>
-        <p class="muted small-note">রেন্ডারের সময় স্ক্রিন চালু রাখুন ও অ্যাপ থেকে বের হবেন না।</p>
+        <p id="renderNote" class="muted small-note">ব্রাউজারে রেন্ডারের সময় এই পেজ খোলা রাখুন। (APK অ্যাপে ব্যাকগ্রাউন্ডেও চলে।)</p>
       </div>
       <div id="result" class="result" hidden>
         <video id="resultVideo" controls playsinline></video>

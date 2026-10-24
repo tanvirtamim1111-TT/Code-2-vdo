@@ -125,6 +125,11 @@ textarea:focus, input:focus, select:focus { outline: 2px solid var(--accent); ou
   border: 1px solid var(--line); border-radius: 10px; padding: 10px;
 }
 .inline { display: flex; gap: 6px; }
+.dur-hint {
+  font: inherit; font-size: 12px; text-align: left; color: var(--accent-2); background: none; border: 0; padding: 0;
+  cursor: default;
+}
+.dur-hint.clickable { cursor: pointer; text-decoration: underline; }
 .inline input { flex: 1; min-width: 0; }
 @media (max-width: 520px) { .grid { grid-template-columns: 1fr; } }
 
