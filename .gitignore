@@ -1,6 +1,6 @@
 node_modules/
 dist/
 public/vendor/
-android/
+/android/
 *.log
 .DS_Store
